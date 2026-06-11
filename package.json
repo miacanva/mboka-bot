@@ -1,0 +1,16 @@
+{
+  "name": "mboka-tech-bot",
+  "version": "2.0.0",
+  "description": "Advanced WhatsApp Bot with Auto Status, Anti-Delete, Always Online",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "whatsapp-web.js": "^1.23.0",
+    "qrcode-terminal": "^0.12.0",
+    "puppeteer": "^21.0.0",
+    "fs-extra": "^11.1.0",
+    "moment-timezone": "^0.5.43"
+  }
+}
