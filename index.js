@@ -1,269 +1,205 @@
-const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
+const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
-const fs = require('fs-extra');
-const moment = require('moment-timezone');
-const config = require('./config');
+const readline = require('readline');
 
-// Bot Configuration
+// Simple config
+let OWNER_NUMBER = "";
+const PREFIX = ".";
+
+// Create client with better settings
 const client = new Client({
     authStrategy: new LocalAuth({
-        dataPath: './session'
+        clientId: "mboka-bot",
+        dataPath: "./session"
     }),
     puppeteer: {
         headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--disable-gpu'
+        ]
     }
 });
 
-// Store deleted messages
-let deletedMessages = new Map();
+// Ask for phone number before starting
+const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+});
 
-// Menu Commands
-const menu = `
-╔══════════════════════════╗
+console.log("\n╔════════════════════════════════╗");
+console.log("║     MBOKA TECH BOT v2.0       ║");
+console.log("║        Starting up...         ║");
+console.log("╚════════════════════════════════╝\n");
+
+rl.question("📱 Enter your WhatsApp number (Example: 255623553450): ", (number) => {
+    if (number) {
+        OWNER_NUMBER = number;
+        console.log(`\n✅ Number set: ${OWNER_NUMBER}`);
+        console.log("🤖 Initializing bot...\n");
+        console.log("⚠️  Wait for QR code to appear...\n");
+        rl.close();
+        client.initialize();
+    } else {
+        console.log("❌ Please enter a valid number!");
+        rl.close();
+        process.exit(1);
+    }
+});
+
+// QR Code handler
+client.on('qr', (qr) => {
+    console.log("\n🔐 SCAN THIS QR CODE WITH WHATSAPP:");
+    console.log("=" .repeat(50));
+    qrcode.generate(qr, { small: true });
+    console.log("=" .repeat(50));
+    console.log("\n📱 STEPS:");
+    console.log("1. Open WhatsApp on your phone");
+    console.log("2. Tap Menu (3 dots) or Settings");
+    console.log("3. Select 'Linked Devices'");
+    console.log("4. Tap 'Link a Device'");
+    console.log("5. Scan the QR code above\n");
+});
+
+// Ready event
+client.on('ready', async () => {
+    console.log("\n✅ BOT IS ONLINE AND READY!");
+    console.log(`🤖 ${OWNER_NUMBER}\n`);
+    
+    // Send welcome message
+    const chatId = `${OWNER_NUMBER}@c.us`;
+    const welcomeMsg = `✅ *MBOKA TECH BOT CONNECTED!*\n\n🤖 *Bot Features:*\n• Auto View Status\n• Auto React Status 🔥\n• Always Online 💚\n• Anti-Delete Messages 🛡️\n• Auto Read Messages\n\n📝 Type *.menu* to see all commands\n\n*Powered by Mbokatech*`;
+    
+    try {
+        await client.sendMessage(chatId, welcomeMsg);
+        console.log("✅ Welcome message sent to your WhatsApp!");
+    } catch (err) {
+        console.log("⚠️  Could not send welcome message:", err.message);
+    }
+});
+
+// Auto view status and reactions
+client.on('message', async (msg) => {
+    try {
+        // Auto view status
+        if (msg.isStatus) {
+            await msg.read();
+            console.log(`👁️ Viewed status`);
+            await msg.react('🔥');
+            console.log(`❤️ Reacted with 🔥`);
+        }
+        
+        // Auto read normal messages
+        if (!msg.isStatus && msg.from !== 'status@broadcast') {
+            await msg.read();
+        }
+        
+        // Command handler
+        if (msg.body.startsWith(PREFIX)) {
+            const command = msg.body.slice(1).toLowerCase();
+            const chatId = msg.from;
+            
+            // Menu command
+            if (command === 'menu') {
+                const menuText = `╔══════════════════════════╗
 ║    🤖 *MBOKA TECH BOT*    ║
-║    Version: ${config.BOT_VERSION}    ║
+║        Version: 2.0       ║
 ╚══════════════════════════╝
 
-┌─── *📱 BASIC COMMANDS* ───┐
-│ ✨ .menu - Show this menu
-│ ✨ .ping - Check bot status
-│ ✨ .owner - Bot owner info
+┌─── *📱 COMMANDS* ───┐
+│ ✨ .menu - Show menu
+│ ✨ .ping - Bot status  
+│ ✨ .owner - Bot owner
 │ ✨ .time - Current time
-└──────────────────────────┘
+└────────────────────┘
 
 ┌─── *⚡ AUTO FEATURES* ───┐
 │ 👁️ Auto View Status
-│ ❤️ Auto React Status (${config.STATUS_REACTION})
-│ 🛡️ Anti-Delete Messages
+│ ❤️ Auto React Status (🔥)
+│ 🛡️ Anti-Delete
 │ 📖 Auto Read Messages
 │ 💚 Always Online
-└─────────────────────────┘
+└───────────────────────┘
 
-┌─── *👑 OWNER COMMANDS* ───┐
-│ 🔄 .restart - Restart bot
-│ 📊 .stats - Bot statistics
-│ 🖼️ .setimage - Change bot image
-└─────────────────────────┘
-
-*🎯 Made with ❤️ by Mbokatech*
-`;
-
-// Initialize Bot
-async function initializeBot() {
-    console.log("\n╔════════════════════════════════╗");
-    console.log(`║     ${config.BOT_NAME} v${config.BOT_VERSION}     ║`);
-    console.log("║        Starting up...         ║");
-    console.log("╚════════════════════════════════╝\n");
-    
-    console.log("📱 Enter Your WhatsApp Number When Prompted!");
-    console.log("💡 Example: 255623553450\n");
-}
-
-// Handle QR Code
-client.on('qr', (qr) => {
-    console.log("\n🔐 SCAN THIS QR CODE WITH WHATSAPP:");
-    qrcode.generate(qr, { small: true });
-    console.log("\n📱 Steps to Connect:");
-    console.log("1. Open WhatsApp on your phone");
-    console.log("2. Go to Settings -> Linked Devices");
-    console.log("3. Tap 'Link a Device'");
-    console.log("4. Scan the QR code above\n");
-});
-
-// Handle Authentication
-client.on('authenticated', () => {
-    console.log("✅ Authentication successful!");
-});
-
-// Handle Auth Failure
-client.on('auth_failure', (msg) => {
-    console.error("❌ Authentication failed:", msg);
-});
-
-// Handle Ready Event
-client.on('ready', async () => {
-    console.log(`\n✅ ${config.BOT_NAME} is ready!`);
-    console.log(`🤖 Bot connected successfully!\n`);
-    
-    // Send welcome message to owner
-    const ownerId = `${config.OWNER_NUMBER}@c.us`;
-    
-    try {
-        // Send text message
-        await client.sendMessage(ownerId, config.WELCOME_MESSAGE);
+🎯 *Made by Mbokatech*`;
+                
+                await client.sendMessage(chatId, menuText);
+            }
+            
+            // Ping command
+            else if (command === 'ping') {
+                await client.sendMessage(chatId, '🏓 *Pong!*\n\n🤖 Bot is online and active!');
+            }
+            
+            // Owner command
+            else if (command === 'owner') {
+                await client.sendMessage(chatId, `👑 *Bot Owner*\n\n📞 Number: ${OWNER_NUMBER}\n🤖 Bot: MBOKA TECH BOT\n⚡ Status: Active`);
+            }
+            
+            // Time command
+            else if (command === 'time') {
+                const now = new Date();
+                const time = now.toLocaleTimeString('en-US', { hour12: false });
+                const date = now.toLocaleDateString();
+                await client.sendMessage(chatId, `🕐 *Current Time*\n\n📅 Date: ${date}\n⏰ Time: ${time}\n🌍 UTC+3 (East Africa)`);
+            }
+            
+            // Unknown command
+            else {
+                await client.sendMessage(chatId, `❌ Unknown command: ${msg.body}\n\nType *.menu* to see available commands`);
+            }
+        }
         
-        // Try to send image if available
+        // Keep online status
+        await client.sendPresenceAvailable();
+        
+    } catch (error) {
+        console.log("Error in message handler:", error.message);
+    }
+});
+
+// Anti-delete feature
+client.on('message_revoke_everyone', async (after, before) => {
+    if (before && before.body) {
+        console.log(`🗑️ Deleted message detected`);
+        const chatId = `${OWNER_NUMBER}@c.us`;
+        const deletedMsg = `⚠️ *MESSAGE DELETED*\n\n✏️ Message: ${before.body}\n🕐 Time: ${new Date().toLocaleTimeString()}`;
+        
         try {
-            const media = MessageMedia.fromFilePath('./assets/bot-image.jpg');
-            if (media) {
-                await client.sendMessage(ownerId, media, { 
-                    caption: `🤖 *${config.BOT_NAME}*\n\n✅ Bot is now online and ready to use!\n\nType *.menu* to get started.`
-                });
-            }
-        } catch (imgError) {
-            console.log("Image not found, sending text only");
+            await client.sendMessage(chatId, deletedMsg);
+        } catch (err) {
+            console.log("Could not send deleted message notification");
         }
-        
-        console.log(`📨 Welcome message sent to ${config.OWNER_NUMBER}`);
-    } catch (error) {
-        console.error("Could not send welcome message:", error);
     }
 });
 
-// Auto View and React to Status
-client.on('message', async (msg) => {
-    try {
-        // Auto view status updates
-        if (msg.isStatus && config.AUTO_STATUS_VIEW) {
-            await msg.read();
-            console.log(`👁️ Viewed status from: ${msg.author || msg.from}`);
-            
-            // Auto react to status
-            if (config.AUTO_STATUS_REACT) {
-                await msg.react(config.STATUS_REACTION);
-                console.log(`❤️ Reacted to status with ${config.STATUS_REACTION}`);
-            }
-        }
-        
-        // Auto read all incoming messages
-        if (config.AUTO_READ_MESSAGES && !msg.isStatus) {
-            await msg.read();
-        }
-        
-        // Always Online - Send presence
-        if (config.ALWAYS_ONLINE) {
-            await client.sendPresenceAvailable();
-        }
-        
-        // Handle Commands
-        if (msg.body.startsWith(config.PREFIX)) {
-            const command = msg.body.slice(1).toLowerCase();
-            const chat = await msg.getChat();
-            
-            switch(command) {
-                case 'menu':
-                    await client.sendMessage(msg.from, menu);
-                    break;
-                    
-                case 'ping':
-                    await msg.reply(`🏓 *Pong!*\n\n🤖 Bot: ${config.BOT_NAME}\n⚡ Status: Online\n⏱️ Response: Active`);
-                    break;
-                    
-                case 'owner':
-                    await msg.reply(`👑 *Bot Owner*\n\n📞 Number: ${config.OWNER_NUMBER}\n🤖 Bot: ${config.BOT_NAME}\n💻 Version: ${config.BOT_VERSION}`);
-                    break;
-                    
-                case 'time':
-                    const time = moment().tz('Africa/Dar_es_Salaam').format('HH:mm:ss');
-                    const date = moment().tz('Africa/Dar_es_Salaam').format('DD/MM/YYYY');
-                    await msg.reply(`🕐 *Current Time*\n\n📅 Date: ${date}\n⏰ Time: ${time}\n🌍 Timezone: East Africa`);
-                    break;
-                    
-                case 'stats':
-                    // Owner only command
-                    if (msg.from === `${config.OWNER_NUMBER}@c.us`) {
-                        const stats = `📊 *Bot Statistics*\n\n🔄 Uptime: Active\n💬 Messages Processed: ${global.messageCount || 0}\n🗑️ Deleted Messages Tracked: ${deletedMessages.size}\n⚙️ Features: All Active`;
-                        await msg.reply(stats);
-                    } else {
-                        await msg.reply("❌ Only bot owner can use this command!");
-                    }
-                    break;
-                    
-                case 'restart':
-                    if (msg.from === `${config.OWNER_NUMBER}@c.us`) {
-                        await msg.reply("🔄 Restarting bot...");
-                        process.exit(0);
-                    } else {
-                        await msg.reply("❌ Only bot owner can restart the bot!");
-                    }
-                    break;
-                    
-                default:
-                    await msg.reply(`❌ Unknown command: ${msg.body}\n\nType *.menu* to see available commands`);
-            }
-        }
-        
-        // Count messages
-        if (!global.messageCount) global.messageCount = 0;
-        global.messageCount++;
-        
-    } catch (error) {
-        console.error("Error processing message:", error);
-    }
-});
-
-// Anti-Delete Feature
-if (config.ANTI_DELETE) {
-    client.on('message_revoke_everyone', async (after, before) => {
-        if (before) {
-            const deletedInfo = `⚠️ *Message Deleted*\n\n👤 From: ${before.author || before.from}\n📝 Message: ${before.body || 'Media message'}\n🕐 Time: ${moment().format('HH:mm:ss')}`;
-            
-            // Send to owner
-            const ownerId = `${config.OWNER_NUMBER}@c.us`;
-            await client.sendMessage(ownerId, deletedInfo);
-            
-            // Store in map
-            deletedMessages.set(Date.now(), before.body);
-            console.log(`🗑️ Deleted message captured from: ${before.author || before.from}`);
-        }
-    });
-}
-
-// Keep connection alive - Always Online
+// Keep alive - Always online
 setInterval(async () => {
-    if (config.ALWAYS_ONLINE && client) {
-        try {
-            await client.sendPresenceAvailable();
-            console.log("💚 Keeping connection alive...");
-        } catch (error) {
-            // Silently fail
-        }
+    try {
+        await client.sendPresenceAvailable();
+        console.log("💚 Heartbeat sent - Keeping online");
+    } catch (err) {
+        // Silent fail
     }
-}, 30000);
+}, 25000); // Every 25 seconds
 
 // Error handling
+client.on('auth_failure', (msg) => {
+    console.log("❌ Authentication failed:", msg);
+    console.log("🔄 Restart the bot to get a new QR code");
+});
+
 client.on('disconnected', (reason) => {
     console.log("❌ Bot disconnected:", reason);
-    console.log("🔄 Attempting to reconnect...");
+    console.log("🔄 Please restart the bot");
 });
 
-// Create assets folder and default image
-async function setupAssets() {
-    await fs.ensureDir('./assets');
-    await fs.ensureDir('./session');
-    
-    // You can add default image creation here if needed
-}
-
-// Start Bot
-async function start() {
-    await setupAssets();
-    await initializeBot();
-    
-    // Ask for phone number
-    const readline = require('readline');
-    const rl = readline.createInterface({
-        input: process.stdin,
-        output: process.stdout
-    });
-    
-    rl.question("\n📱 Enter your WhatsApp number (Example: 255623553450): ", (number) => {
-        if (number) {
-            config.OWNER_NUMBER = number;
-            console.log(`\n✅ Number saved: ${number}`);
-            console.log("🤖 Starting bot...\n");
-        }
-        rl.close();
-        client.initialize();
-    });
-}
-
-// Handle process exit
-process.on('SIGINT', async () => {
-    console.log("\n🛑 Shutting down bot...");
-    await client.destroy();
-    process.exit(0);
+// Process handlers
+process.on('unhandledRejection', (error) => {
+    console.log("Unhandled rejection:", error.message);
 });
 
-start().catch(console.error);
+console.log("🤖 Bot is starting... Please wait...");
