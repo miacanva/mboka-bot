@@ -1,6 +1,5 @@
 node_modules/
 session/
-assets/
 *.log
 .DS_Store
-*.tmp
+package-lock.json
